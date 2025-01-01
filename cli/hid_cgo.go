@@ -32,32 +32,39 @@ func (d *hidDeviceWrapper) Close() error {
 
 func SearchDevice(foundHandler func(info usb.DeviceInfo) error) error {
 	log.Printf("Searching for devices with VID:PID %04x:%04x", CLI.VID, CLI.PID)
-	// Enumerate both HID and raw USB devices
-	devices, err := usb.Enumerate(uint16(CLI.VID), uint16(CLI.PID))
+
+	// Try to open the device directly with the HID interface
+	rawDevices, err := usb.EnumerateRaw(uint16(CLI.VID), uint16(CLI.PID))
 	if err != nil {
-		log.Printf("Error enumerating devices: %v", err)
+		log.Printf("Error enumerating raw devices: %v", err)
 		return err
 	}
-	log.Printf("Found %d devices with primary VID:PID", len(devices))
+	log.Printf("Found %d raw devices with primary VID:PID", len(rawDevices))
 
-	if len(devices) == 0 && CLI.VID2 != 0 {
+	if len(rawDevices) == 0 && CLI.VID2 != 0 {
 		log.Printf("Trying alternate VID:PID %04x:%04x", CLI.VID2, CLI.PID)
-		devices, err = usb.Enumerate(uint16(CLI.VID2), uint16(CLI.PID))
+		rawDevices, err = usb.EnumerateRaw(uint16(CLI.VID2), uint16(CLI.PID))
 		if err != nil {
-			log.Printf("Error enumerating devices with alternate VID: %v", err)
+			log.Printf("Error enumerating raw devices with alternate VID: %v", err)
 			return err
 		}
-		log.Printf("Found %d devices with alternate VID:PID", len(devices))
+		log.Printf("Found %d raw devices with alternate VID:PID", len(rawDevices))
 	}
 
-	if len(devices) == 0 {
+	if len(rawDevices) == 0 {
 		log.Printf("No devices found")
 		return os.ErrNotExist
 	}
 
-	for _, info := range devices {
-		log.Printf("Found device: VID=%04x PID=%04x Path=%s Serial=%s",
-			info.VendorID, info.ProductID, info.Path, info.Serial)
+	for _, info := range rawDevices {
+		log.Printf("Found device: VID=%04x PID=%04x Path=%s Serial=%s Interface=%d",
+			info.VendorID, info.ProductID, info.Path, info.Serial, info.Interface)
+
+		// Only process HID interface (interface 4)
+		if info.Interface != 4 {
+			log.Printf("Skipping non-HID interface %d", info.Interface)
+			continue
+		}
 
 		if CLI.Serial != "" && info.Serial != CLI.Serial {
 			log.Printf("Skipping device: serial number mismatch (want %s)", CLI.Serial)
@@ -82,7 +89,7 @@ func SearchDevice(foundHandler func(info usb.DeviceInfo) error) error {
 func OpenDevice() (gohid.HIDDevice, error) {
 	var device usb.Device
 	err := SearchDevice(func(info usb.DeviceInfo) error {
-		log.Printf("Attempting to open device: %s", info.Path)
+		log.Printf("Attempting to open device: %s (interface %d)", info.Path, info.Interface)
 		dev, err := info.Open()
 		if err == nil {
 			device = dev
@@ -106,8 +113,8 @@ type ListHIDCmd struct {
 
 func (l *ListHIDCmd) Run(c *Context) error {
 	return SearchDevice(func(info usb.DeviceInfo) error {
-		fmt.Printf("%s: ID %04x:%04x %s %s\n",
-			info.Path, info.VendorID, info.ProductID, info.Manufacturer, info.Product)
+		fmt.Printf("%s: ID %04x:%04x %s %s (Interface %d)\n",
+			info.Path, info.VendorID, info.ProductID, info.Manufacturer, info.Product, info.Interface)
 		fmt.Println("Device Information:")
 		fmt.Printf("\tPath         %s\n", info.Path)
 		fmt.Printf("\tVendorID     %04x\n", info.VendorID)
@@ -116,8 +123,6 @@ func (l *ListHIDCmd) Run(c *Context) error {
 		fmt.Printf("\tRelease      %x.%x\n", info.Release>>8, info.Release&0xff)
 		fmt.Printf("\tManufacturer %s\n", info.Manufacturer)
 		fmt.Printf("\tProduct      %s\n", info.Product)
-		fmt.Printf("\tUsagePage    %#x\n", info.UsagePage)
-		fmt.Printf("\tUsage        %#x\n", info.Usage)
 		fmt.Printf("\tInterface    %d\n", info.Interface)
 		fmt.Println()
 
