@@ -20,7 +20,6 @@ type hidDeviceWrapper struct {
 }
 
 func (d *hidDeviceWrapper) GetFeatureReport(b []byte) (int, error) {
-	// Add report ID 0 as per USB HID spec
 	if len(b) < 1 {
 		return 0, errors.New("buffer too small")
 	}
@@ -28,7 +27,6 @@ func (d *hidDeviceWrapper) GetFeatureReport(b []byte) (int, error) {
 }
 
 func (d *hidDeviceWrapper) SendFeatureReport(b []byte) (int, error) {
-	// Add report ID 0 as per USB HID spec
 	if len(b) < 1 {
 		return 0, errors.New("buffer too small")
 	}
@@ -41,24 +39,23 @@ func (d *hidDeviceWrapper) Close() error {
 
 func tryEnumerate(vid uint16, pid uint16) ([]usb.DeviceInfo, error) {
 	var lastErr error
-	// Try multiple times as USB enumeration can be flaky
 	for attempts := 0; attempts < 3; attempts++ {
 		if attempts > 0 {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		// First try HID enumeration
-		devices, err := usb.Enumerate(vid, pid)
+		// Try HID enumeration first (system calls)
+		devices, err := usb.EnumerateHid(vid, pid)
 		if err == nil && len(devices) > 0 {
-			log.Printf("Found %d devices using HID enumeration", len(devices))
+			log.Printf("Found %d HID devices", len(devices))
 			return devices, nil
 		}
 		lastErr = err
 
-		// Then try raw USB enumeration
+		// Then try raw USB enumeration (libusb)
 		rawDevices, err := usb.EnumerateRaw(vid, pid)
 		if err == nil && len(rawDevices) > 0 {
-			log.Printf("Found %d devices using raw USB enumeration", len(rawDevices))
+			log.Printf("Found %d raw USB devices", len(rawDevices))
 			return rawDevices, nil
 		}
 		if err != nil {
@@ -104,17 +101,13 @@ func SearchDevice(foundHandler func(info usb.DeviceInfo) error) error {
 			continue
 		}
 
-		// Try to match HID interface
-		if info.Interface == 4 || info.Usage == 0x0001 {
-			if err := foundHandler(info); err != nil {
-				if err.Error() == "Done" {
-					return nil
-				}
-				log.Printf("Handler error: %v", err)
-				return err
+		// Try to open the device
+		if err := foundHandler(info); err != nil {
+			if err.Error() == "Done" {
+				return nil
 			}
-		} else {
-			log.Printf("Skipping non-HID interface/usage")
+			log.Printf("Handler error: %v", err)
+			return err
 		}
 	}
 	return nil
