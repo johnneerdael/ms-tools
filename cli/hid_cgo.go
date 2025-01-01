@@ -4,19 +4,21 @@
 package main
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
-	"github.com/BertoldVdb/ms-tools/gohid"
+	"github.com/johnneerdael/ms-tools/gohid"
 	"github.com/karalabe/usb"
 )
 
 // hidDeviceWrapper wraps usb.Device to implement gohid.HIDDevice
 type hidDeviceWrapper struct {
-	dev usb.Device
+	dev              usb.Device
+	ms2130spiEnabled int
 }
 
 func (d *hidDeviceWrapper) GetFeatureReport(b []byte) (int, error) {
@@ -35,6 +37,90 @@ func (d *hidDeviceWrapper) SendFeatureReport(b []byte) (int, error) {
 
 func (d *hidDeviceWrapper) Close() error {
 	return d.dev.Close()
+}
+
+func (d *hidDeviceWrapper) ms2130enableSPI(enable bool) error {
+	value := byte(0x00)
+	if enable {
+		if d.ms2130spiEnabled == 1 {
+			return nil
+		}
+
+		/* Configure GPIO */
+		output := byte(1<<2 | 1<<3 | 1<<4)
+		input := byte(1 << 5)
+
+		// Configure GPIO pins
+		var out [8]byte
+		out[0] = 0xb5 // GPIO command
+		out[1] = output
+		out[2] = 0
+		out[3] = output
+		out[4] = input
+		if _, err := d.SendFeatureReport(out[:]); err != nil {
+			return err
+		}
+
+		value = byte(0x10)
+	} else {
+		if d.ms2130spiEnabled == 0 {
+			return nil
+		}
+	}
+
+	/* Configure pin mux */
+	var out [8]byte
+	out[0] = 0xb5 // RAM write command
+	out[1] = 0xf0 // High byte of address
+	out[2] = 0x1f // Low byte of address
+	out[3] = value
+	if _, err := d.SendFeatureReport(out[:]); err != nil {
+		return err
+	}
+
+	if enable {
+		d.ms2130spiEnabled = 1
+	} else {
+		d.ms2130spiEnabled = 0
+	}
+
+	return nil
+}
+
+func (d *hidDeviceWrapper) readFlashPage(page uint16, offset uint8, buf []byte) (int, error) {
+	if err := d.ms2130enableSPI(true); err != nil {
+		return 0, err
+	}
+
+	/* Read from flash to buffer: f701aaaaaabbbb00 (aaaaaa=addr, bbbb=len to read)
+	 * Read from buffer to host: f700000000aaaa00 (aaaa=offset) */
+
+	var out [8]byte
+	out[0] = 0xf7
+	out[1] = 0x01
+	binary.BigEndian.PutUint16(out[2:], page)
+	binary.BigEndian.PutUint16(out[5:], 256)
+
+	if _, err := d.SendFeatureReport(out[:]); err != nil {
+		return 0, err
+	}
+
+	out[0] = 0xf7
+	out[1] = 0x00
+	binary.BigEndian.PutUint16(out[5:], uint16(offset))
+
+	in := make([]byte, 8)
+	_, err := d.GetFeatureReport(in)
+	if err != nil {
+		return 0, err
+	}
+
+	maxLen := 0x100 - int(offset)
+	if len(buf) > maxLen {
+		buf = buf[:maxLen]
+	}
+
+	return copy(buf, in[1:]), nil
 }
 
 func tryEnumerate(vid uint16, pid uint16) ([]usb.DeviceInfo, error) {
@@ -122,7 +208,7 @@ func SearchDevice(foundHandler func(info usb.DeviceInfo) error) error {
 }
 
 func OpenDevice() (gohid.HIDDevice, error) {
-	var device usb.Device
+	var device *hidDeviceWrapper
 	err := SearchDevice(func(info usb.DeviceInfo) error {
 		log.Printf("Attempting to open device: %s (interface %d)", info.Path, info.Interface)
 		// Try multiple times as device opening can be flaky
@@ -132,7 +218,10 @@ func OpenDevice() (gohid.HIDDevice, error) {
 			}
 			dev, err := info.Open()
 			if err == nil {
-				device = dev
+				device = &hidDeviceWrapper{
+					dev:              dev,
+					ms2130spiEnabled: -1,
+				}
 				log.Printf("Successfully opened device: %s", info.Path)
 				return errors.New("Done")
 			}
@@ -141,7 +230,7 @@ func OpenDevice() (gohid.HIDDevice, error) {
 		return fmt.Errorf("failed to open device after multiple attempts")
 	})
 	if device != nil {
-		return &hidDeviceWrapper{dev: device}, nil
+		return device, nil
 	}
 	if err == nil {
 		err = os.ErrNotExist

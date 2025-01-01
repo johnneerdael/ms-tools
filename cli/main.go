@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/BertoldVdb/ms-tools/gohid"
-	"github.com/BertoldVdb/ms-tools/mshal"
 	"github.com/alecthomas/kong"
+	"github.com/johnneerdael/ms-tools/gohid"
+	"github.com/johnneerdael/ms-tools/mshal"
 )
 
 type Context struct {
-	dev gohid.HIDDevice
-	hal *mshal.HAL
+	dev   gohid.HIDDevice
+	hal   *mshal.HAL
+	flash *FlashMemoryRegion
 }
 
 var CLI struct {
@@ -93,6 +94,11 @@ func main() {
 		if err != nil {
 			fmt.Println("Failed to create HAL", err)
 			return
+		}
+
+		// Initialize flash memory region
+		if wrapper, ok := dev.(*hidDeviceWrapper); ok {
+			c.flash = &FlashMemoryRegion{dev: wrapper}
 		}
 	}
 

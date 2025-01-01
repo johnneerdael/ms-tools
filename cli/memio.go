@@ -8,8 +8,8 @@ import (
 	"io/ioutil"
 	"time"
 
-	"github.com/BertoldVdb/ms-tools/mshal"
 	"github.com/inancgumus/screen"
+	"github.com/johnneerdael/ms-tools/mshal"
 )
 
 type MEMIOListRegions struct {
@@ -30,6 +30,10 @@ func (l *MEMIOListRegions) Run(c *Context) error {
 			fmt.Printf(" %s.%04X", parent.GetName(), offset)
 		}
 		fmt.Printf("\n")
+	}
+
+	if c.flash != nil {
+		fmt.Printf("%-13s|      %5d |\n", "FLASH", c.flash.GetLength())
 	}
 	return nil
 }
@@ -52,7 +56,17 @@ func (l *MEMIOReadCmd) Run(c *Context) error {
 		return errors.New("Loop flag out of range")
 	}
 
-	region := c.hal.MemoryRegionGet(mshal.MemoryRegionNameType(l.Region.Region))
+	var region interface {
+		GetLength() int
+		Access(write bool, addr int, buf []byte) (int, error)
+	}
+
+	if l.Region.Region == "FLASH" && c.flash != nil {
+		region = c.flash
+	} else {
+		region = c.hal.MemoryRegionGet(mshal.MemoryRegionNameType(l.Region.Region))
+	}
+
 	if region == nil {
 		return errors.New("Invalid memory region")
 	}
@@ -122,7 +136,18 @@ type MEMIOWriteCmd struct {
 }
 
 func (w MEMIOWriteCmd) Run(c *Context) error {
-	region := c.hal.MemoryRegionGet(mshal.MemoryRegionNameType(w.Zone.Region))
+	var region interface {
+		GetLength() int
+		Access(write bool, addr int, buf []byte) (int, error)
+		GetAlignment() int
+	}
+
+	if w.Zone.Region == "FLASH" && c.flash != nil {
+		region = c.flash
+	} else {
+		region = c.hal.MemoryRegionGet(mshal.MemoryRegionNameType(w.Zone.Region))
+	}
+
 	if region == nil {
 		return errors.New("Invalid memory region")
 	}
@@ -160,7 +185,17 @@ func (w MEMIOWriteFileCmd) Run(c *Context) error {
 		return err
 	}
 
-	region := c.hal.MemoryRegionGet(mshal.MemoryRegionNameType(w.Region.Region))
+	var region interface {
+		GetLength() int
+		Access(write bool, addr int, buf []byte) (int, error)
+	}
+
+	if w.Region.Region == "FLASH" && c.flash != nil {
+		region = c.flash
+	} else {
+		region = c.hal.MemoryRegionGet(mshal.MemoryRegionNameType(w.Region.Region))
+	}
+
 	if region == nil {
 		return errors.New("Invalid memory region")
 	}
