@@ -1,0 +1,2 @@
+MOV 0x21.0, C
+LJMP 0x4cf3
