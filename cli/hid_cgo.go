@@ -44,15 +44,7 @@ func tryEnumerate(vid uint16, pid uint16) ([]usb.DeviceInfo, error) {
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		// Try HID enumeration first (system calls)
-		devices, err := usb.EnumerateHid(vid, pid)
-		if err == nil && len(devices) > 0 {
-			log.Printf("Found %d HID devices", len(devices))
-			return devices, nil
-		}
-		lastErr = err
-
-		// Then try raw USB enumeration (libusb)
+		// Try raw USB enumeration first since this is a video device
 		rawDevices, err := usb.EnumerateRaw(vid, pid)
 		if err == nil && len(rawDevices) > 0 {
 			log.Printf("Found %d raw USB devices", len(rawDevices))
@@ -60,12 +52,28 @@ func tryEnumerate(vid uint16, pid uint16) ([]usb.DeviceInfo, error) {
 		}
 		if err != nil {
 			lastErr = err
+			log.Printf("Raw enumeration error: %v", err)
+		}
+
+		// Then try HID enumeration as fallback
+		devices, err := usb.EnumerateHid(vid, pid)
+		if err == nil && len(devices) > 0 {
+			log.Printf("Found %d HID devices", len(devices))
+			return devices, nil
+		}
+		if err != nil {
+			lastErr = err
+			log.Printf("HID enumeration error: %v", err)
 		}
 	}
 	return nil, lastErr
 }
 
 func SearchDevice(foundHandler func(info usb.DeviceInfo) error) error {
+	if !usb.Supported() {
+		return fmt.Errorf("USB support not enabled on this platform")
+	}
+
 	log.Printf("Searching for devices with VID:PID %04x:%04x", CLI.VID, CLI.PID)
 
 	// Try primary VID/PID
