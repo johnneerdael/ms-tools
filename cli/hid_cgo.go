@@ -4,9 +4,10 @@
 package main
 
 import (
-	"fmt"
-	"os"
 	"errors"
+	"fmt"
+	"log"
+	"os"
 
 	"github.com/BertoldVdb/ms-tools/gohid"
 	"github.com/karalabe/usb"
@@ -30,23 +31,40 @@ func (d *hidDeviceWrapper) Close() error {
 }
 
 func SearchDevice(foundHandler func(info usb.DeviceInfo) error) error {
+	log.Printf("Searching for devices with VID:PID %04x:%04x", CLI.VID, CLI.PID)
 	// Enumerate both HID and raw USB devices
 	devices, err := usb.Enumerate(uint16(CLI.VID), uint16(CLI.PID))
 	if err != nil {
+		log.Printf("Error enumerating devices: %v", err)
 		return err
 	}
+	log.Printf("Found %d devices with primary VID:PID", len(devices))
+
 	if len(devices) == 0 && CLI.VID2 != 0 {
+		log.Printf("Trying alternate VID:PID %04x:%04x", CLI.VID2, CLI.PID)
 		devices, err = usb.Enumerate(uint16(CLI.VID2), uint16(CLI.PID))
 		if err != nil {
+			log.Printf("Error enumerating devices with alternate VID: %v", err)
 			return err
 		}
+		log.Printf("Found %d devices with alternate VID:PID", len(devices))
+	}
+
+	if len(devices) == 0 {
+		log.Printf("No devices found")
+		return os.ErrNotExist
 	}
 
 	for _, info := range devices {
+		log.Printf("Found device: VID=%04x PID=%04x Path=%s Serial=%s",
+			info.VendorID, info.ProductID, info.Path, info.Serial)
+
 		if CLI.Serial != "" && info.Serial != CLI.Serial {
+			log.Printf("Skipping device: serial number mismatch (want %s)", CLI.Serial)
 			continue
 		}
 		if CLI.RawPath != "" && info.Path != CLI.RawPath {
+			log.Printf("Skipping device: path mismatch (want %s)", CLI.RawPath)
 			continue
 		}
 
@@ -54,6 +72,7 @@ func SearchDevice(foundHandler func(info usb.DeviceInfo) error) error {
 			if err.Error() == "Done" {
 				return nil
 			}
+			log.Printf("Handler error: %v", err)
 			return err
 		}
 	}
@@ -63,11 +82,14 @@ func SearchDevice(foundHandler func(info usb.DeviceInfo) error) error {
 func OpenDevice() (gohid.HIDDevice, error) {
 	var device usb.Device
 	err := SearchDevice(func(info usb.DeviceInfo) error {
+		log.Printf("Attempting to open device: %s", info.Path)
 		dev, err := info.Open()
 		if err == nil {
 			device = dev
+			log.Printf("Successfully opened device: %s", info.Path)
 			return errors.New("Done")
 		}
+		log.Printf("Failed to open device %s: %v", info.Path, err)
 		return err
 	})
 	if device != nil {
