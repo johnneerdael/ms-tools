@@ -1,8 +1,9 @@
-module github.com/johnneerdael/ms-tools/cli
+module github.com/johnneerdael/ms-tools
 
 go 1.21
 
 require (
+	github.com/BertoldVdb/ms-tools v0.3.0
 	github.com/alecthomas/kong v0.8.1
 	github.com/fatih/color v1.18.0
 	github.com/inancgumus/screen v0.0.0-20190314163918-06e984b86ed3
