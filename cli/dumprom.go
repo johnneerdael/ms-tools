@@ -9,7 +9,7 @@ import (
 
 	_ "embed"
 
-	"github.com/BertoldVdb/ms-tools/mshal"
+	"github.com/johnneerdael/ms-tools/mshal"
 )
 
 type DumpROM struct {
@@ -61,7 +61,9 @@ func (d *DumpROM) Run(c *Context) error {
 		return mshal.ErrorUnknownDevice
 	}
 
-	code, err := d.work(c.hal, p)
+	// Convert to original HAL type for compatibility
+	origHal := (*mshal.HAL)(c.hal)
+	code, err := d.work(origHal, p)
 	if err != nil {
 		return err
 	}
